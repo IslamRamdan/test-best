@@ -21,6 +21,9 @@ import {
     MoreVertical,
     Landmark,
     Building2,
+    BookOpen,
+    Upload,
+    Check,
 } from "lucide-react";
 
 export default function Clients({
@@ -49,8 +52,8 @@ export default function Clients({
             return;
         }
         const r = e.currentTarget.getBoundingClientRect();
-        // عدد العناصر: 2 عادي، 4 لو العميل مقبول (عقد الوزارة + عقد الشركة)
-        const itemsCount = client.pivot?.evaluation === "مقبول" ? 4 : 2;
+        // عدد العناصر: 3 عادي (تقييم + جواز + حذف)، 5 لو العميل مقبول (عقد الوزارة + عقد الشركة)
+        const itemsCount = client.pivot?.evaluation === "مقبول" ? 5 : 3;
         const MENU_HEIGHT = itemsCount * ITEM_HEIGHT + 14;
         const openUp = window.innerHeight - r.bottom < MENU_HEIGHT + 12;
         setMenu({
@@ -93,6 +96,160 @@ export default function Clients({
         evaluation: "",
         notes: "",
     });
+
+    /*
+    |--------------------------------------------------------------------------
+    | استلام الجواز
+    |--------------------------------------------------------------------------
+    */
+    const [passportClient, setPassportClient] = useState(null);
+    const [passportPreview, setPassportPreview] = useState(null);
+    const [isDraggingPassport, setIsDraggingPassport] = useState(false);
+
+    const passportForm = useForm({
+        _method: "PATCH",
+        passport_received: false,
+        passport_received_at: "",
+        passport_photo: null,
+        remove_passport_photo: false,
+    });
+
+    // أي تاريخ من السيرفر → قيمة datetime-local بالتوقيت المحلي
+    const toLocalInput = (value) => {
+        if (!value) return "";
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return "";
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+
+    const revokePassportPreview = () => {
+        if (passportPreview && passportPreview.startsWith("blob:")) {
+            URL.revokeObjectURL(passportPreview);
+        }
+    };
+
+    const openPassportModal = (client) => {
+        revokePassportPreview();
+
+        setPassportClient(client);
+
+        passportForm.clearErrors();
+        passportForm.setData({
+            _method: "PATCH",
+            passport_received: !!client.passport_received,
+            passport_received_at: toLocalInput(client.passport_received_at),
+            passport_photo: null,
+            remove_passport_photo: false,
+        });
+
+        setPassportPreview(
+            client.passport_photo_url ||
+                (client.passport_photo
+                    ? `/storage/${client.passport_photo}`
+                    : null),
+        );
+    };
+
+    const closePassportModal = () => {
+        revokePassportPreview();
+        setPassportPreview(null);
+        setPassportClient(null);
+        setIsDraggingPassport(false);
+        passportForm.reset();
+        passportForm.clearErrors();
+    };
+
+    const handlePassportToggle = (checked) => {
+        passportForm.setData((prev) => ({
+            ...prev,
+            passport_received: checked,
+            // أول ما يتأكد الاستلام ولسه مفيش تاريخ، نحط الوقت الحالي
+            passport_received_at:
+                checked && !prev.passport_received_at
+                    ? toLocalInput(new Date())
+                    : prev.passport_received_at,
+        }));
+    };
+
+    const handlePassportPhoto = (file) => {
+        if (!file) return;
+        if (!file.type?.startsWith("image/")) return; // صور فقط
+
+        revokePassportPreview();
+
+        passportForm.setData((prev) => ({
+            ...prev,
+            passport_photo: file,
+            remove_passport_photo: false,
+        }));
+
+        setPassportPreview(URL.createObjectURL(file));
+    };
+
+    // ===== السحب والإفلات =====
+    const onPassportDragOver = (e) => {
+        e.preventDefault();
+        setIsDraggingPassport(true);
+    };
+
+    const onPassportDragLeave = (e) => {
+        // تجاهل الخروج لعنصر داخلي
+        if (e.currentTarget.contains(e.relatedTarget)) return;
+        setIsDraggingPassport(false);
+    };
+
+    const onPassportDrop = (e) => {
+        e.preventDefault();
+        setIsDraggingPassport(false);
+        const file = Array.from(e.dataTransfer.files || []).find((f) =>
+            f.type.startsWith("image/"),
+        );
+        handlePassportPhoto(file);
+    };
+
+    // ===== اللصق (Ctrl+V) طول ما المودال مفتوح =====
+    useEffect(() => {
+        if (!passportClient) return;
+
+        const onPaste = (e) => {
+            const items = Array.from(e.clipboardData?.items || []);
+            const imageItem = items.find((i) => i.type.startsWith("image/"));
+            if (!imageItem) return; // لو نص عادي سيبه يشتغل طبيعي
+
+            const file = imageItem.getAsFile();
+            if (!file) return;
+
+            e.preventDefault();
+            handlePassportPhoto(file);
+        };
+
+        document.addEventListener("paste", onPaste);
+        return () => document.removeEventListener("paste", onPaste);
+    }, [passportClient, passportPreview]);
+
+    const removePassportPhoto = () => {
+        revokePassportPreview();
+
+        passportForm.setData((prev) => ({
+            ...prev,
+            passport_photo: null,
+            remove_passport_photo: true,
+        }));
+
+        setPassportPreview(null);
+    };
+
+    const handlePassportSubmit = (e) => {
+        e.preventDefault();
+        if (!passportClient) return;
+
+        passportForm.post(route("clients.passport.update", passportClient.id), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => closePassportModal(),
+        });
+    };
 
     // إحصائيات التقييم: لو الباك اند باعت stats هنستخدمها، لو لأ هنحسبها من الصفحة الحالية (fallback)
     const evaluationStats =
@@ -545,6 +702,14 @@ export default function Clients({
                                                                     عميل #
                                                                     {client.id}
                                                                 </p>
+                                                                {client.passport_received && (
+                                                                    <span className="mt-1.5 inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                                                                        <BookOpen className="h-3 w-3" />
+                                                                        تم
+                                                                        استلام
+                                                                        الجواز
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </td>
@@ -714,6 +879,20 @@ export default function Clients({
                             تعديل التقييم
                         </button>
 
+                        <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                                const c = menu.client;
+                                setMenu(null);
+                                openPassportModal(c);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-bold text-slate-700 transition hover:bg-blue-50 hover:text-blue-600"
+                        >
+                            <BookOpen className="h-4 w-4 text-teal-600" />
+                            استلام الجواز
+                        </button>
+
                         {menu.client.pivot?.evaluation === "مقبول" && (
                             <>
                                 <Link
@@ -762,6 +941,244 @@ export default function Clients({
                     </div>,
                     document.body,
                 )}
+
+            {/* Modal استلام الجواز */}
+            {passportClient && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+                    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-xl transition-all">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-600">
+                                    <BookOpen className="h-5 w-5" />
+                                </div>
+
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900">
+                                        استلام الجواز
+                                    </h3>
+                                    <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                                        {passportClient.name}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={closePassportModal}
+                                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <form
+                            onSubmit={handlePassportSubmit}
+                            className="mt-5 space-y-5"
+                        >
+                            {/* تم الاستلام */}
+                            <label
+                                className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3.5 text-sm font-black transition ${
+                                    passportForm.data.passport_received
+                                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-300"
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={
+                                        passportForm.data.passport_received
+                                    }
+                                    onChange={(e) =>
+                                        handlePassportToggle(e.target.checked)
+                                    }
+                                    className="h-4 w-4 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                تم استلام الجواز من العميل
+                            </label>
+
+                            {passportForm.errors.passport_received && (
+                                <p className="-mt-3 text-xs font-semibold text-red-500">
+                                    {passportForm.errors.passport_received}
+                                </p>
+                            )}
+
+                            {/* تاريخ الاستلام */}
+                            <div>
+                                <label className="mb-1.5 block text-xs font-black text-slate-700">
+                                    تاريخ ووقت الاستلام
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    dir="ltr"
+                                    value={
+                                        passportForm.data.passport_received_at
+                                    }
+                                    disabled={
+                                        !passportForm.data.passport_received
+                                    }
+                                    onChange={(e) =>
+                                        passportForm.setData(
+                                            "passport_received_at",
+                                            e.target.value,
+                                        )
+                                    }
+                                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold outline-none transition focus:border-brand-teal focus:bg-white focus:ring-2 focus:ring-brand-teal/10 disabled:cursor-not-allowed disabled:opacity-50"
+                                />
+                                {passportForm.errors.passport_received_at && (
+                                    <p className="mt-1 text-xs font-semibold text-red-500">
+                                        {
+                                            passportForm.errors
+                                                .passport_received_at
+                                        }
+                                    </p>
+                                )}
+                            </div>
+
+                            {/* صورة الجواز */}
+                            <div>
+                                <label className="mb-1.5 block text-xs font-black text-slate-700">
+                                    صورة الجواز
+                                </label>
+
+                                <div
+                                    onDragOver={onPassportDragOver}
+                                    onDragEnter={onPassportDragOver}
+                                    onDragLeave={onPassportDragLeave}
+                                    onDrop={onPassportDrop}
+                                    className={`relative rounded-2xl transition ${
+                                        isDraggingPassport
+                                            ? "ring-2 ring-teal-500 ring-offset-2"
+                                            : ""
+                                    }`}
+                                >
+                                    {passportPreview ? (
+                                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                                            <div className="relative h-52 bg-slate-100">
+                                                <img
+                                                    src={passportPreview}
+                                                    alt="صورة الجواز"
+                                                    className="h-full w-full object-cover"
+                                                />
+
+                                                <span
+                                                    className={`absolute right-2 top-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold ${
+                                                        passportForm.data
+                                                            .passport_photo
+                                                            ? "bg-teal-600 text-white"
+                                                            : "bg-white/90 text-slate-700"
+                                                    }`}
+                                                >
+                                                    {passportForm.data
+                                                        .passport_photo ? (
+                                                        <>
+                                                            <Check className="h-3 w-3" />
+                                                            صورة جديدة
+                                                        </>
+                                                    ) : (
+                                                        "الصورة الحالية"
+                                                    )}
+                                                </span>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={
+                                                        removePassportPhoto
+                                                    }
+                                                    title="إزالة الصورة"
+                                                    className="absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg bg-red-500 text-white shadow-sm transition hover:bg-red-600"
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </button>
+                                            </div>
+
+                                            <div className="flex items-center justify-between gap-2 p-3">
+                                                <span className="text-[10px] font-semibold text-slate-400">
+                                                    اسحب صورة جديدة هنا أو
+                                                    الصقها (Ctrl+V)
+                                                </span>
+                                                <label
+                                                    htmlFor="passport-photo"
+                                                    className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-600 transition hover:border-teal-500 hover:text-teal-600"
+                                                >
+                                                    <Upload className="h-3.5 w-3.5" />
+                                                    تغيير الصورة
+                                                </label>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <label
+                                            htmlFor="passport-photo"
+                                            className={`group flex h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition ${
+                                                isDraggingPassport
+                                                    ? "border-teal-500 bg-teal-50"
+                                                    : "border-slate-200 bg-slate-50/70 hover:border-teal-400 hover:bg-teal-50/40"
+                                            }`}
+                                        >
+                                            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-400 transition group-hover:border-teal-200 group-hover:text-teal-600">
+                                                <Upload className="h-5 w-5" />
+                                            </div>
+                                            <span className="text-xs font-bold text-slate-600 group-hover:text-teal-700">
+                                                {isDraggingPassport
+                                                    ? "أفلت الصورة هنا"
+                                                    : "اسحب الصورة هنا أو اضغط للرفع"}
+                                            </span>
+                                            <span className="mt-1 text-[10px] text-slate-400">
+                                                أو الصقها مباشرة (Ctrl+V) • PNG
+                                                / JPG / JPEG
+                                            </span>
+                                        </label>
+                                    )}
+
+                                    {/* طبقة توضح منطقة الإفلات فوق الصورة الحالية */}
+                                    {isDraggingPassport && passportPreview && (
+                                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-2xl bg-teal-600/70 text-sm font-black text-white">
+                                            أفلت الصورة لاستبدالها
+                                        </div>
+                                    )}
+                                </div>
+
+                                <input
+                                    id="passport-photo"
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        handlePassportPhoto(
+                                            e.target.files?.[0],
+                                        );
+                                        e.target.value = ""; // يسمح باختيار نفس الملف تاني
+                                    }}
+                                />
+
+                                {passportForm.errors.passport_photo && (
+                                    <p className="mt-1 text-xs font-semibold text-red-500">
+                                        {passportForm.errors.passport_photo}
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="flex items-center justify-end gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={closePassportModal}
+                                    className="rounded-2xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                                >
+                                    إلغاء
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={passportForm.processing}
+                                    className="rounded-2xl bg-brand-teal px-5 py-2.5 text-sm font-black text-white hover:opacity-90 disabled:opacity-50"
+                                >
+                                    {passportForm.processing
+                                        ? "جاري الحفظ..."
+                                        : "حفظ"}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {/* Modal التقييم والملاحظات */}
             {isEvaluationModalOpen && (

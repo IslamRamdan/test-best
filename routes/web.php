@@ -84,14 +84,18 @@ Route::middleware(['auth'])->group(function () {
         ->name('tests.clients.destroy');
 
     Route::get('/tests/{test}/clients/create', [TestController::class, 'create_client_to_test'])->name('tests.clients.create');
-    Route::post('/tests/{test}/clients', [TestController::class, 'storeClient'])->name('tests.clients.store-new');
 
+    Route::post('/tests/{test}/clients', [TestController::class, 'storeClient'])->name('tests.clients.store-new');
 
     Route::get('tests/{test}/evaluations-mode', [TestController::class, 'evaluations'])
         ->name('tests.evaluations');
 
     Route::post('tests/{test}/evaluations-mode', [TestController::class, 'storeEvaluation'])
         ->name('tests.evaluations.store');
+
+    // مسار تحديث حالة الجواز
+    Route::patch('clients/{client}/passport', [ClientController::class, 'updatePassport'])
+        ->name('clients.passport.update');
 });
 
 

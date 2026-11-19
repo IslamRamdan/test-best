@@ -305,6 +305,13 @@ class TestController extends Controller
     }
     public function updateEvaluation(Request $request, Test $test, Client $client)
     {
+        Log::info('1. UpdateEvaluation Hit:', [
+            'test_id'    => $test->id ?? null,
+            'client_id'  => $client->id ?? null,
+            'phone'      => $client->phone ?? null,
+            'input_data' => $request->all(),
+        ]);
+
         // 1. التحقق من صحة البيانات المدخلة
         $validated = $request->validate([
             'evaluation' => [
@@ -321,15 +328,51 @@ class TestController extends Controller
             'notes'      => $validated['notes'],
         ]);
 
-        // إرسال رسالة SMS للعميل إذا تم تحديد تقييم
-        if (isset($validated['evaluation']) && $validated['evaluation'] === 'مقبول') {
-            if ($client) {
+        // إرسال رسالة SMS للعميل بناءً على نتيجة التقييم
+        if (!empty($validated['evaluation']) && !empty($client->phone)) {
+            $message = null;
+
+            if ($validated['evaluation'] === 'مقبول') {
                 $message = "مبارك لك اجتياز الاختبار بنجاح يا {$client->name}! 🎉\n\n"
                     . "نرجو منك التوجه إلى مقر المكتب في أسرع وقت ممكن لاستكمال الأوراق والإجراءات اللازمة.\n\n"
-                    . "مع تحياتنا，";
-
-                $this->sendSms($client->phone, $message);
+                    . "📍 العنوان:\n"
+                    . "38 شارع صلاح سالم (ربيع الجيزي سابقًا)\n"
+                    . "بجوار محكمة جنوب الجيزة – برج أبو الفدا – شقة رقم 60 – الدور السادس\n\n"
+                    . "📍 الموقع على الخريطة:\n"
+                    . "https://maps.app.goo.gl/c7imVzdikYf3d7i89\n\n"
+                    . "📞 للاستفسار: 01288000245\n\n"
+                    . "مع تحياتنا،";
+            } elseif ($validated['evaluation'] === 'راسب') {
+                $message = "أهلاً بك يا {$client->name}،\n\n"
+                    . "نشكرك على حضورك وتقديمك للاختبار، ونأسف لإبلاغك بعدم اجتياز الاختبار هذه المرة.\n"
+                    . "نتمنى لك كل التوفيق والنجاح في الفرص القادمة إن شاء الله.\n\n"
+                    . "مع تحياتنا،";
             }
+
+            if ($message) {
+                Log::info('2. Attempting to send SMS:', [
+                    'phone'   => $client->phone,
+                    'message' => $message,
+                ]);
+
+                try {
+                    $smsResult = $this->sendSms($client->phone, $message);
+
+                    Log::info('3. sendSms Executed Successfully:', [
+                        'result' => $smsResult,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::error('3. sendSms Exception Failed:', [
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ]);
+                }
+            }
+        } else {
+            Log::warning('2. SMS Skipped (Missing evaluation or phone):', [
+                'evaluation' => $validated['evaluation'] ?? null,
+                'phone'      => $client->phone ?? null,
+            ]);
         }
 
         // 3. العودة للصفحة مع رسالة نجاح
@@ -373,17 +416,34 @@ class TestController extends Controller
             'notes'      => $validated['notes'],
         ]);
 
-        // إرسال رسالة SMS للعميل إذا تم تحديد تقييم
-        if (isset($validated['evaluation']) && $validated['evaluation'] === 'مقبول') {
+        // إرسال رسالة SMS للعميل بناءً على نتيجة التقييم
+        if (!empty($validated['evaluation'])) {
             $client = Client::find($validated['client_id']);
 
-            if ($client) {
-                $message = "مبارك لك اجتياز الاختبار بنجاح يا {$client->name}! 🎉\n\n"
-                    . "نرجو منك التوجه إلى مقر المكتب في أسرع وقت ممكن لاستكمال الأوراق والإجراءات اللازمة.\n\n"
-                    . "مع تحياتنا،";
+            if ($client && !empty($client->phone)) {
+                $message = null;
 
-                $this->sendSms($client->phone, $message);
-                // $this->sendWhatsappMessage($client, $message);
+                if ($validated['evaluation'] === 'مقبول') {
+                    $message = "مبارك لك اجتياز الاختبار بنجاح يا {$client->name}! 🎉\n\n"
+                        . "نرجو منك التوجه إلى مقر المكتب في أسرع وقت ممكن لاستكمال الأوراق والإجراءات اللازمة.\n\n"
+                        . "📍 العنوان:\n"
+                        . "38 شارع صلاح سالم (ربيع الجيزي سابقًا)\n"
+                        . "بجوار محكمة جنوب الجيزة – برج أبو الفدا – شقة رقم 60 – الدور السادس\n\n"
+                        . "📍 الموقع على الخريطة:\n"
+                        . "https://maps.app.goo.gl/c7imVzdikYf3d7i89\n\n"
+                        . "📞 للاستفسار: 01288000245\n\n"
+                        . "مع تحياتنا،";
+                } elseif ($validated['evaluation'] === 'راسب') {
+                    $message = "أهلاً بك يا {$client->name}،\n\n"
+                        . "نشكرك على حضورك وتقديمك للاختبار، ونأسف لإبلاغك بعدم اجتياز الاختبار هذه المرة.\n"
+                        . "نتمنى لك كل التوفيق والنجاح في الفرص القادمة إن شاء الله.\n\n"
+                        . "📞 للاستفسار: 01288000245\n\n"
+                        . "مع تحياتنا،";
+                }
+
+                if ($message) {
+                    $this->sendSms($client->phone, $message);
+                }
             }
         }
 
@@ -412,13 +472,12 @@ class TestController extends Controller
             'name'              => 'required|string|max:255',
             'national_id'       => 'required|string|max:14',
             'phone'             => 'required|string|max:20',
-            'job_title'         => 'nullable|string|max:255',
             'governorate'       => 'nullable|string|max:255',
             'license_grade'     => 'nullable|string|max:100',
             "delegate_id"       => 'nullable|exists:delegates,id',
             'visa_duration'     => [
                 'nullable',
-                Rule::in(['3 شهور موسمي', '3 شهور موقت', '6 شهور موقت']),
+                Rule::in(['3 شهور', '6 شهور']),
             ],
             'birth_date'        => 'nullable|date',
             'personal_photo'    => 'nullable|image|mimes:jpg,jpeg,png',
@@ -460,7 +519,6 @@ class TestController extends Controller
                     'name'          => $validated['name'],
                     'national_id'   => $validated['national_id'],
                     'phone'         => $validated['phone'],
-                    'job_title'     => $validated['job_title'] ?? null,
                     'governorate'   => $validated['governorate'] ?? null,
                     'license_grade' => $validated['license_grade'] ?? null,
                     'visa_duration' => $validated['visa_duration'] ?? null,

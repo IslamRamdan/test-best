@@ -24,11 +24,17 @@ class Client extends Model
         'license_photo',
         'license_grade',
         'visa_duration',
-        'delegate_id', // <--- أضفنا هذا الحقل هنا
+        'delegate_id',
+        'status',
+        'passport_received',
+        'passport_received_at',
+        'passport_photo',
     ];
 
     protected $casts = [
         'birth_date' => 'date',
+        'passport_received'    => 'boolean',
+        'passport_received_at' => 'datetime',
     ];
 
     public function company(): BelongsTo

@@ -79,14 +79,13 @@ class ClientController extends Controller
 
         $validated = $request->validate([
             'name'              => 'required|string|max:255',
-            'job_title'         => 'nullable|string|max:255',
             'birth_date'        => 'nullable|date',
             'governorate'       => 'nullable|string|max:255',
             'license_grade'     => 'nullable|string|max:255',
             'delegate_id'       => 'nullable|exists:delegates,id', // <--- أضفنا التحقق هنا
             'visa_duration'     => [
                 'nullable',
-                Rule::in(['3 شهور موسمي', '3 شهور موقت', '6 شهور موقت']),
+                Rule::in(['3 شهور', '6 شهور']),
             ],
             'phone'             => [
                 'required',
@@ -158,7 +157,6 @@ class ClientController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'job_title' => 'nullable|string|max:255',
             'birth_date' => 'nullable|date',
             'governorate' => 'nullable|string|max:255',
             'license_grade' => 'nullable|string|max:255',
@@ -166,7 +164,7 @@ class ClientController extends Controller
 
             'visa_duration' => [
                 'nullable',
-                Rule::in(['3 شهور موسمي', '3 شهور موقت', '6 شهور موقت']),
+                Rule::in(['3 شهور', '6 شهور']),
             ],
 
             'phone' => [
@@ -298,5 +296,43 @@ class ClientController extends Controller
             'client'  => $client,
             'company' => $client->company,
         ]);
+    }
+
+    public function updatePassport(Request $request, Client $client)
+    {
+        $validated = $request->validate([
+            'passport_received'     => ['required', 'boolean'],
+            'passport_received_at'  => ['nullable', 'date'],
+            'passport_photo'        => ['nullable', 'image', 'max:5120'],
+            'remove_passport_photo' => ['nullable', 'boolean'],
+        ]);
+
+        // صورة الجواز
+        if ($request->hasFile('passport_photo')) {
+            if ($client->passport_photo) {
+                Storage::disk('public')->delete($client->passport_photo);
+            }
+
+            // غيّر المجلد لو عندك تنظيم تاني للصور
+            $client->passport_photo = $request->file('passport_photo')
+                ->store('clients/passports', 'public');
+        } elseif ($request->boolean('remove_passport_photo') && $client->passport_photo) {
+            Storage::disk('public')->delete($client->passport_photo);
+            $client->passport_photo = null;
+        }
+
+        // حالة الاستلام
+        $received = $request->boolean('passport_received');
+
+        $client->passport_received = $received;
+        $client->passport_received_at = $received
+            ? ($validated['passport_received_at'] ?? $client->passport_received_at ?? now())
+            : null;
+
+        $client->save();
+
+        return back()->with('success', $received
+            ? 'تم تسجيل استلام الجواز بنجاح'
+            : 'تم تحديث حالة الجواز');
     }
 }
