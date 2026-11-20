@@ -24,6 +24,7 @@ import {
     BookOpen,
     Upload,
     Check,
+    Download,
 } from "lucide-react";
 
 export default function Clients({
@@ -409,7 +410,7 @@ export default function Clients({
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-3 sm:flex-row">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                                 <Link
                                     href={route(
                                         "tests.clients.create",
@@ -432,6 +433,19 @@ export default function Clients({
                                     </svg>
                                     <span>إضافة عميل جديد</span>
                                 </Link>
+
+                                {/* تصدير الناجحين (تحميل ملف → لازم <a> عادي مش Link) */}
+                                <a
+                                    href={route("tests.export-passed", test.id)}
+                                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold rounded-xl transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+                                >
+                                    <Download className="h-5 w-5" />
+                                    <span>
+                                        تصدير الناجحين (
+                                        {evaluationStats.accepted})
+                                    </span>
+                                </a>
+
                                 <Link
                                     href={route("tests.evaluations", {
                                         test: test?.id,
@@ -615,7 +629,7 @@ export default function Clients({
                     {/* Table */}
                     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[850px] text-right">
+                            <table className="w-full min-w-[950px] text-right">
                                 <thead className="border-b border-slate-100 bg-slate-50">
                                     <tr>
                                         <th className="px-5 py-4 text-xs font-black text-slate-500">
@@ -623,6 +637,9 @@ export default function Clients({
                                         </th>
                                         <th className="px-5 py-4 text-xs font-black text-slate-500">
                                             العميل
+                                        </th>
+                                        <th className="px-5 py-4 text-xs font-black text-slate-500">
+                                            السن
                                         </th>
                                         <th className="px-5 py-4 text-xs font-black text-slate-500">
                                             الهاتف
@@ -651,6 +668,9 @@ export default function Clients({
                                                 );
                                             const EvaluationIcon =
                                                 evaluation.icon;
+                                            const hasAge =
+                                                client.age !== null &&
+                                                client.age !== undefined;
 
                                             return (
                                                 <tr
@@ -712,6 +732,26 @@ export default function Clients({
                                                                 )}
                                                             </div>
                                                         </div>
+                                                    </td>
+
+                                                    {/* Age */}
+                                                    <td className="px-5 py-5">
+                                                        {hasAge ? (
+                                                            <span
+                                                                className={`inline-flex items-center rounded-xl border px-3 py-2 text-xs font-black ${
+                                                                    client.age >
+                                                                    45
+                                                                        ? "border-red-200 bg-red-50 text-red-600"
+                                                                        : "border-slate-200 bg-slate-50 text-slate-700"
+                                                                }`}
+                                                            >
+                                                                {client.age} سنة
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-sm font-semibold text-slate-400">
+                                                                -
+                                                            </span>
+                                                        )}
                                                     </td>
 
                                                     {/* Phone */}
@@ -789,7 +829,7 @@ export default function Clients({
                                     ) : (
                                         <tr>
                                             <td
-                                                colSpan="7"
+                                                colSpan="8"
                                                 className="px-6 py-20 text-center"
                                             >
                                                 <div className="flex flex-col items-center">

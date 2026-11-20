@@ -658,4 +658,71 @@ class TestController extends Controller
             return false;
         }
     }
+
+    public function exportPassed(Test $test)
+    {
+        $this->authorizeTestAccess($test);
+
+        $passedClients = $test->clients()
+            ->with('delegate')
+            ->wherePivot('evaluation', 'مقبول')
+            ->get();
+
+        $headers = [
+            'الاسم',
+            'الرقم القومي',
+            'رقم الهاتف',
+            'الوظيفة',
+            'تاريخ الميلاد',
+            'العمر',
+            'المحافظة',
+            'درجة الرخصة',
+            'مدة التأشيرة',
+            'المندوب',
+            'هاتف المندوب',
+            'الحالة',
+            'استلام الجواز',
+            'تاريخ استلام الجواز',
+            'كود الاختبار',
+            'التقييم',
+        ];
+
+        $escapeCsv = static function ($value): string {
+            $str = (string) ($value ?? '');
+            $str = str_replace('"', '""', $str);
+            return '"' . $str . '"';
+        };
+
+        // UTF-8 BOM لضمان قراءة الحروف العربية في Excel بدون مشاكل ترميز
+        $csvData = "\xEF\xBB\xBF" . implode(',', array_map($escapeCsv, $headers)) . "\n";
+
+        foreach ($passedClients as $client) {
+            $row = [
+                $client->name,
+                "\t" . $client->national_id, // منع Excel من تحويل الرقم القومي لصيغة علمية
+                "\t" . $client->phone,       // الحفاظ على الصفر في بداية رقم الهاتف
+                $client->job_title,
+                $client->birth_date?->format('Y-m-d'),
+                $client->age,
+                $client->governorate,
+                $client->license_grade,
+                $client->visa_duration,
+                $client->delegate?->name,
+                $client->delegate?->phone ? "\t" . $client->delegate->phone : null,
+                $client->status,
+                $client->passport_received ? 'نعم' : 'لا',
+                $client->passport_received_at?->format('Y-m-d H:i'),
+                $client->pivot?->code,
+                $client->pivot?->evaluation,
+            ];
+
+            $csvData .= implode(',', array_map($escapeCsv, $row)) . "\n";
+        }
+
+        $fileName = "passed_clients_test_{$test->id}.csv";
+
+        return response($csvData)
+            ->header('Content-Type', 'text/csv; charset=UTF-8')
+            ->header('Content-Disposition', "attachment; filename=\"{$fileName}\"");
+    }
 }

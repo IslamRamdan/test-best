@@ -96,6 +96,9 @@ Route::middleware(['auth'])->group(function () {
     // مسار تحديث حالة الجواز
     Route::patch('clients/{client}/passport', [ClientController::class, 'updatePassport'])
         ->name('clients.passport.update');
+
+    Route::get('tests/export-passed/{test}', [TestController::class, 'exportPassed'])
+        ->name('tests.export-passed');
 });
 
 

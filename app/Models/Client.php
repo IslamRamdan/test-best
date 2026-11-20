@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Client extends Model
 {
@@ -36,6 +37,15 @@ class Client extends Model
         'passport_received'    => 'boolean',
         'passport_received_at' => 'datetime',
     ];
+
+    protected $appends = ['age'];
+
+    protected function age(): Attribute
+    {
+        return Attribute::get(
+            fn() => $this->birth_date?->age
+        );
+    }
 
     public function company(): BelongsTo
     {
