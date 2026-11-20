@@ -665,7 +665,6 @@ class TestController extends Controller
 
         $passedClients = $test->clients()
             ->with('delegate')
-            ->wherePivot('evaluation', 'مقبول')
             ->get();
 
         $headers = [
