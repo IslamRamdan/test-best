@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import axios from "axios";
 import { Head, Link, router, useForm } from "@inertiajs/react";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
 import {
@@ -25,7 +26,24 @@ import {
     Upload,
     Check,
     Download,
+    Send,
 } from "lucide-react";
+
+/*
+|--------------------------------------------------------------------------
+| شرط ظهور زرار "إرسال لسيستم العمليات"
+|--------------------------------------------------------------------------
+| الزرار بيظهر بس لو: التقييم "مقبول" + الـ status مش true
+| لو العميل (احتياطي / راسب / لم يتم التقييم) → يختفي
+| لو الـ status بتاع العميل true → يختفي
+| (true / 1 / "1" = true ، وأي قيمة تانية "0" أو false أو null = مش true)
+| ملاحظة: لو الـ status موجود في الـ pivot غيّر client.status لـ client.pivot?.status
+*/
+const isClientActive = (client) =>
+    client?.status === true || client?.status === 1 || client?.status === "1";
+
+const canSendToOperations = (client) =>
+    client?.pivot?.evaluation === "مقبول" && !isClientActive(client);
 
 export default function Clients({
     auth,
@@ -53,8 +71,13 @@ export default function Clients({
             return;
         }
         const r = e.currentTarget.getBoundingClientRect();
-        // عدد العناصر: 3 عادي (تقييم + جواز + حذف)، 5 لو العميل مقبول (عقد الوزارة + عقد الشركة)
-        const itemsCount = client.pivot?.evaluation === "مقبول" ? 5 : 3;
+
+        // الأساسي: تقييم + جواز + حذف = 3
+        // لو مقبول: + عقد الوزارة + عقد الشركة
+        // لو مقبول و status مش true: + إرسال لسيستم العمليات
+        const isAccepted = client.pivot?.evaluation === "مقبول";
+        const itemsCount =
+            3 + (isAccepted ? 2 : 0) + (canSendToOperations(client) ? 1 : 0);
         const MENU_HEIGHT = itemsCount * ITEM_HEIGHT + 14;
         const openUp = window.innerHeight - r.bottom < MENU_HEIGHT + 12;
         setMenu({
@@ -97,6 +120,129 @@ export default function Clients({
         evaluation: "",
         notes: "",
     });
+
+    /*
+    |--------------------------------------------------------------------------
+    | التوست (Alert) للنجاح والفشل
+    |--------------------------------------------------------------------------
+    */
+    const [toast, setToast] = useState(null); // { type: "success" | "error", title, message }
+    const toastTimer = useRef(null);
+
+    const showToast = (type, title, message) => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast({ type, title, message });
+        toastTimer.current = setTimeout(() => setToast(null), 6000);
+    };
+
+    const closeToast = () => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast(null);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (toastTimer.current) clearTimeout(toastTimer.current);
+        };
+    }, []);
+
+    // لو السيرفر بعت flash (نجاح أو خطأ) نعرضه كتوست
+    useEffect(() => {
+        if (flash?.success) {
+            showToast("success", "تمت العملية بنجاح", flash.success);
+        } else if (flash?.error) {
+            showToast("error", "فشلت العملية", flash.error);
+        }
+    }, [flash?.success, flash?.error]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | إرسال لسيستم العمليات
+    |--------------------------------------------------------------------------
+    */
+    const [sendClient, setSendClient] = useState(null);
+    const [isSending, setIsSending] = useState(false);
+    const [sendErrors, setSendErrors] = useState({});
+
+    const openSendModal = (client) => {
+        // حماية إضافية: مسموح بس للعميل المقبول والـ status بتاعه مش true
+        if (!canSendToOperations(client)) return;
+        setSendErrors({});
+        setSendClient(client);
+    };
+
+    const closeSendModal = () => {
+        if (isSending) return;
+        setSendClient(null);
+    };
+
+    // الروت بيرجع JSON (مش Inertia) فبنستخدم axios ونقرأ الرد مباشرة
+    const confirmSendCustomerData = async () => {
+        if (!sendClient || isSending) return;
+
+        const clientName = sendClient.name;
+
+        setIsSending(true);
+        setSendErrors({});
+
+        try {
+            const response = await axios.post(
+                route("clients.send-customer-data", sendClient.id),
+                {},
+                { headers: { Accept: "application/json" } },
+            );
+
+            const body = response?.data || {};
+
+            if (body.success === false) {
+                showToast(
+                    "error",
+                    "فشل الإرسال",
+                    body.message || "حدث خطأ أثناء الإرسال لسيستم العمليات",
+                );
+            } else {
+                showToast(
+                    "success",
+                    "تم الإرسال بنجاح",
+                    body.message ||
+                        `تم إرسال العميل "${clientName}" لسيستم العمليات`,
+                );
+
+                // تحديث الجدول بدون إعادة تحميل الصفحة
+                router.reload({
+                    only: ["clients", "stats"],
+                    preserveScroll: true,
+                });
+            }
+        } catch (error) {
+            const res = error?.response;
+            const body = res?.data || {};
+
+            // أخطاء الـ validation (422)
+            if (res?.status === 422 && body.errors) {
+                setSendErrors(body.errors);
+            }
+
+            const firstValidation = body.errors
+                ? Object.values(body.errors)[0]
+                : null;
+
+            showToast(
+                "error",
+                "فشل الإرسال",
+                body.message ||
+                    (Array.isArray(firstValidation)
+                        ? firstValidation[0]
+                        : firstValidation) ||
+                    body.error ||
+                    error?.message ||
+                    "حدث خطأ أثناء الإرسال لسيستم العمليات",
+            );
+        } finally {
+            setIsSending(false);
+            setSendClient(null);
+        }
+    };
 
     /*
     |--------------------------------------------------------------------------
@@ -384,6 +530,58 @@ export default function Clients({
         <AuthenticatedLayout user={auth.user}>
             <Head title={`عملاء اختبار ${test?.name || ""}`} />
 
+            {/* توست النجاح / الفشل */}
+            {toast &&
+                createPortal(
+                    <div
+                        dir="rtl"
+                        role="alert"
+                        className="pointer-events-none fixed inset-x-0 top-4 z-[100] flex justify-center px-4"
+                    >
+                        <div
+                            className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border p-4 shadow-2xl ${
+                                toast.type === "success"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-red-200 bg-red-50 text-red-800"
+                            }`}
+                        >
+                            <div
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${
+                                    toast.type === "success"
+                                        ? "bg-emerald-500"
+                                        : "bg-red-500"
+                                }`}
+                            >
+                                {toast.type === "success" ? (
+                                    <CheckCircle2 className="h-5 w-5" />
+                                ) : (
+                                    <XCircle className="h-5 w-5" />
+                                )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                                <p className="text-sm font-black">
+                                    {toast.title}
+                                </p>
+                                {toast.message && (
+                                    <p className="mt-1 break-words text-sm font-semibold">
+                                        {toast.message}
+                                    </p>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={closeToast}
+                                className="rounded-lg p-1 opacity-60 transition hover:opacity-100"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
+
             <div className="py-6 font-sans text-slate-900" dir="rtl">
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                     {/* Header */}
@@ -583,11 +781,30 @@ export default function Clients({
                         </div>
                     </div>
 
-                    {/* Flash */}
+                    {/* Flash: خطأ / أخطاء الإرسال / نجاح */}
+                    {flash?.error && (
+                        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                            <p className="font-semibold">
+                                حدث خطأ أثناء الإرسال:
+                            </p>
+                            <p className="mt-1">{flash.error}</p>
+                        </div>
+                    )}
+
+                    {sendErrors && Object.keys(sendErrors).length > 0 && (
+                        <ul className="mb-4 list-disc space-y-1 rounded-xl border border-red-200 bg-red-50 p-4 pr-8 text-sm text-red-700">
+                            {Object.entries(sendErrors).map(([field, msg]) => (
+                                <li key={field}>
+                                    <strong>{field}:</strong>{" "}
+                                    {Array.isArray(msg) ? msg.join("، ") : msg}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+
                     {flash?.success && (
-                        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700">
-                            <CheckCircle2 className="h-5 w-5 shrink-0" />
-                            <span>{flash.success}</span>
+                        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+                            {flash.success}
                         </div>
                     )}
 
@@ -933,6 +1150,23 @@ export default function Clients({
                             استلام الجواز
                         </button>
 
+                        {/* إرسال لسيستم العمليات: مقبول + status مش true فقط */}
+                        {canSendToOperations(menu.client) && (
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    const c = menu.client;
+                                    setMenu(null);
+                                    openSendModal(c);
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right text-sm font-bold text-slate-700 transition hover:bg-blue-50 hover:text-blue-600"
+                            >
+                                <Send className="h-4 w-4 text-blue-600" />
+                                إرسال لسيستم العمليات
+                            </button>
+                        )}
+
                         {menu.client.pivot?.evaluation === "مقبول" && (
                             <>
                                 <Link
@@ -981,6 +1215,66 @@ export default function Clients({
                     </div>,
                     document.body,
                 )}
+
+            {/* Modal تأكيد الإرسال لسيستم العمليات */}
+            {sendClient && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl transition-all">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                                    <Send className="h-5 w-5" />
+                                </div>
+
+                                <div>
+                                    <h3 className="text-lg font-black text-slate-900">
+                                        إرسال لسيستم العمليات
+                                    </h3>
+                                    <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                                        {sendClient.name}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={closeSendModal}
+                                disabled={isSending}
+                                className="rounded-xl p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                            >
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <p className="mt-5 text-sm font-bold leading-7 text-slate-700">
+                            هل أنت متأكد من إرسال العميل "{sendClient.name}"
+                            لسيستم العمليات؟
+                        </p>
+
+                        <div className="flex items-center justify-end gap-3 pt-6">
+                            <button
+                                type="button"
+                                onClick={closeSendModal}
+                                disabled={isSending}
+                                className="rounded-2xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                                إلغاء
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmSendCustomerData}
+                                disabled={isSending}
+                                className="inline-flex items-center gap-2 rounded-2xl bg-brand-teal px-5 py-2.5 text-sm font-black text-white hover:opacity-90 disabled:opacity-50"
+                            >
+                                <Send className="h-4 w-4" />
+                                {isSending
+                                    ? "جاري الإرسال..."
+                                    : "تأكيد الإرسال"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Modal استلام الجواز */}
             {passportClient && (

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class TestController extends Controller
 {
@@ -618,6 +619,7 @@ class TestController extends Controller
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
+
     private function sendWhatsappMessage($client, string $message)
     {
         // تحقق من وجود العميل ورقم هاتفه
@@ -723,5 +725,119 @@ class TestController extends Controller
         return response($csvData)
             ->header('Content-Type', 'text/csv; charset=UTF-8')
             ->header('Content-Disposition', "attachment; filename=\"{$fileName}\"");
+    }
+
+
+    public function sendCustomerData(Client $client)
+    {
+        // العميل اتبعت قبل كده
+        if ($client->status) {
+            return response()->json([
+                'success' => false,
+                'message' => 'تم إرسال هذا العميل لسيستم العمليات من قبل.',
+            ], 422);
+        }
+
+        $url = 'http://127.0.0.1:9000/api/customer';
+
+        $companyToken = $client->company?->token;
+
+        if (!$companyToken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'قم بربط شركتك بسيستم العمليات اولا قبل إرسال بيانات العميل.',
+            ], 422);
+        }
+
+        $request = Http::timeout(30)
+            ->acceptJson()
+            ->asMultipart();
+
+        $images = [
+            'job_proof_image'   => $client->license_photo,
+            'national_id_image' => $client->national_id_front,
+            'personal_image'    => $client->personal_photo,
+            'passport_image'    => $client->passport_photo,
+        ];
+
+        foreach ($images as $field => $path) {
+            if ($path && Storage::disk('public')->exists($path)) {
+                $request->attach(
+                    $field,
+                    Storage::disk('public')->get($path),
+                    basename($path)
+                );
+            }
+        }
+
+        $fields = [
+            'name_ar'        => $client->name,
+            'phone'          => $client->phone,
+            'birth_date'     => $client->birth_date?->format('d/m/Y'),
+            'whatsapp'       => $client->phone,
+            'company_token'  => $companyToken,
+            'governorate'    => $client->governorate,
+            'national_id'    => $client->national_id,
+            'delegate_phone' => $client->delegate?->phone,
+        ];
+
+        $multipart = [];
+        foreach ($fields as $name => $value) {
+            if (!is_null($value) && $value !== '') {
+                $multipart[] = [
+                    'name'     => $name,
+                    'contents' => (string) $value,
+                ];
+            }
+        }
+
+        try {
+            $response = $request->post($url, $multipart);
+
+            if ($response->successful()) {
+                $client->update(['status' => true]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'تم إرسال بيانات العميل بنجاح.',
+                ]);
+            }
+
+            Log::warning('فشل إرسال بيانات العميل', [
+                'client_id' => $client->id,
+                'status'    => $response->status(),
+                'body'      => $response->body(),
+            ]);
+
+            $errorMessage = $response->json('message')
+                ?: Str::limit(strip_tags((string) $response->body()), 300)
+                ?: "فشل الإرسال (كود الحالة: {$response->status()})";
+
+            $apiErrors = $response->json('errors');
+
+            // أخطاء الـ validation جاية من سيستم العمليات → 422 عشان الفرونت يعرضها
+            if (is_array($apiErrors) && !empty($apiErrors)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMessage,
+                    'errors'  => $apiErrors,
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => $errorMessage,
+            ], 422);
+        } catch (\Throwable $e) {
+            Log::error('خطأ أثناء إرسال بيانات العميل', [
+                'client_id' => $client->id,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'خطأ في الاتصال بسيستم العمليات: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

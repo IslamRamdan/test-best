@@ -117,8 +117,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/clients/{client}/contracts/company', [ClientController::class, 'company'])
         ->name('contracts.company');
 });
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('delegates', DelegateController::class)->except(['create', 'show', 'edit']);
+});
+
+Route::middleware(['auth'])->group(function () {
+    Route::post('/clients/{client}/send-customer-data', [TestController::class, 'sendCustomerData'])
+        ->name('clients.send-customer-data');
 });
 
 require __DIR__ . '/auth.php';
