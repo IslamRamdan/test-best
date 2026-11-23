@@ -731,7 +731,7 @@ class TestController extends Controller
     public function sendCustomerData(Client $client)
     {
         // العميل اتبعت قبل كده
-        if ($client->status == true) {
+        if ((int) $client->status === 1) {
             return response()->json([
                 'success' => false,
                 'message' => 'تم إرسال هذا العميل لسيستم العمليات من قبل.',
