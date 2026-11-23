@@ -738,7 +738,7 @@ class TestController extends Controller
             ], 422);
         }
 
-        $url = 'http://127.0.0.1:9000/api/customer';
+        $url = 'https://mintcream-giraffe-655141.hostingersite.com/api/customer';
 
         $companyToken = $client->company?->token;
 
