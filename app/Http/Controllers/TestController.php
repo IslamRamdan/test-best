@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Carbon;
 
 class TestController extends Controller
 {
@@ -769,11 +770,14 @@ class TestController extends Controller
                 );
             }
         }
+        $birthDate = $client->birth_date
+            ? Carbon::parse($client->birth_date)->format('Y-m-d')
+            : null;
 
         $fields = [
             'name_ar'        => $client->name,
             'phone'          => $client->phone,
-            'birth_date'     => $client->birth_date?->format('d/m/Y'),
+            'birth_date'     => $birthDate,
             'whatsapp'       => $client->phone,
             'company_token'  => $companyToken,
             'governorate'    => $client->governorate,
