@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class TestController extends Controller
 {
@@ -324,7 +325,6 @@ class TestController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        // 2. تحديث بيانات الـ Pivot Table للعميل داخل هذا الاختبار تحديداً
         $test->clients()->updateExistingPivot($client->id, [
             'evaluation' => $validated['evaluation'],
             'notes'      => $validated['notes'],
@@ -344,6 +344,8 @@ class TestController extends Controller
                     . "https://maps.app.goo.gl/c7imVzdikYf3d7i89\n\n"
                     . "📞 للاستفسار: 01288000245\n\n"
                     . "مع تحياتنا،";
+                $mss = 'العميل :' . $client->name . "(ناجح)";
+                $this->sendSms('01215758885', $mss);
             } elseif ($validated['evaluation'] === 'راسب') {
                 $message = "أهلاً بك يا {$client->name}،\n\n"
                     . "نشكرك على حضورك وتقديمك للاختبار، ونأسف لإبلاغك بعدم اجتياز الاختبار هذه المرة.\n"
@@ -435,6 +437,8 @@ class TestController extends Controller
                         . "https://maps.app.goo.gl/c7imVzdikYf3d7i89\n\n"
                         . "📞 للاستفسار: 01288000245\n\n"
                         . "مع تحياتنا،";
+                    $mss = 'العميل :' . $client->name . "(ناجح)";
+                    $this->sendSms('01228815901', $mss);
                 } elseif ($validated['evaluation'] === 'راسب') {
                     $message = "أهلاً بك يا {$client->name}،\n\n"
                         . "نشكرك على حضورك وتقديمك للاختبار، ونأسف لإبلاغك بعدم اجتياز الاختبار هذه المرة.\n"
@@ -528,6 +532,16 @@ class TestController extends Controller
                     'delegate_id'   => $validated['delegate_id'] ?? null,
                     ...$photoPaths,
                 ]);
+
+                if (!empty($client->delegate?->phone)) {
+                    try {
+                        $mssdel = 'تم تسجيل العميل : ' . $client->name;
+                        $this->sendSms($client->delegate->phone, $mssdel);
+                    } catch (\Exception $e) {
+                        // تسجيل الخطأ في اللوج دون إيقاف البرنامج
+                        \Log::error('فشل إرسال الرسالة للمندوب: ' . $e->getMessage());
+                    }
+                }
             }
 
             // 5. الكود التالي داخل الاختبار (مع قفل الصفوف لتجنب تكرار الكود عند الضغط المتزامن)
@@ -547,6 +561,7 @@ class TestController extends Controller
                 'updated_at' => now(),
             ]);
         });
+
 
         // 7. إرسال رسالة SMS للعميل بالرقم الكود الجديد في الاختبار
         if ($client && $client->phone && $nextCode) {
